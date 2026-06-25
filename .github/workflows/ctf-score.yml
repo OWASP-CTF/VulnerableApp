@@ -73,8 +73,19 @@ jobs:
       - name: Pull the ollama sidecar image
         run: docker pull docker.io/ollama/ollama:latest
 
-      - name: Build the PR's app image (untrusted Dockerfile, no secrets/build-args)
-        run: docker build -t ctf-app:pr .
+      # VulnerableApp has NO root Dockerfile — it's a Gradle (Java 17) project that builds its app
+      # image with the jib plugin. `jibDockerBuild` assembles the image straight into the local
+      # docker daemon (no registry push), overriding the target name to ctf-app:pr.
+      - name: Set up JDK 17 (VulnerableApp build toolchain)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build the PR's app image (Gradle jib -> local docker, no secrets/build-args)
+        run: |
+          chmod +x gradlew
+          ./gradlew jibDockerBuild --image=ctf-app:pr
 
       - name: Create an isolated, internet-less network
         run: docker network create --internal ctfnet
@@ -85,7 +96,7 @@ jobs:
       - name: Start the ollama sidecar on the internal network
         run: docker run -d --name ollama --network ctfnet docker.io/ollama/ollama:latest
 
-      - name: Start the VulnerableApp sandboxed (PR Dockerfile)
+      - name: Start the VulnerableApp sandboxed (jib-built PR image)
         run: docker run -d --name app --network ctfnet ctf-app:pr
 
       # Wait for VulnerableApp to serve a healthy endpoint catalogue, via the scorer
