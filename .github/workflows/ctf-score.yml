@@ -31,7 +31,7 @@ name: ctf-score
 
 on:
   pull_request_target:
-    branches: [dc34-ctf] # set to the VulnerableApp fork's CTF branch
+    branches: [master]
     types: [opened, synchronize, reopened]
 
 concurrency:
