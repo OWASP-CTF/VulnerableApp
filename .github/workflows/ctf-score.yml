@@ -99,21 +99,36 @@ jobs:
       - name: Start the VulnerableApp sandboxed (jib-built PR image)
         run: docker run -d --name app --network ctfnet ctf-app:pr
 
-      # Wait for VulnerableApp to serve a healthy endpoint catalogue, via the scorer
-      # container on ctfnet (the score image delegates to Node under `--entrypoint node`),
-      # with a per-request timeout so a slow/broken app fails fast.
-      - name: Wait for VulnerableApp to become healthy
+      # Wait for VulnerableApp to be healthy AND for its data to be SEEDED. VulnerableApp's
+      # DatabaseSeeder runs on ApplicationReadyEvent — i.e. AFTER the web server starts serving —
+      # so /allEndPointJson returns 200 before the cars/users tables are populated. Scoring during
+      # that window makes the data-dependent SQLi (blind boolean, UNION exfil, auth bypass) return
+      # nothing and falsely look "patched". So we additionally poll a SEEDED row
+      # (UnionBasedSQLInjectionVulnerability/LEVEL_1?id=1 -> the "Audi" car) and only proceed once it
+      # appears. Run via the scorer container on ctfnet (score image delegates to Node under
+      # `--entrypoint node`), with a per-request timeout so a slow/broken app fails fast.
+      - name: Wait for VulnerableApp to become healthy and seeded
         run: |
           docker run --rm --entrypoint node --network ctfnet "$SCORER_IMAGE" -e '
             const B = "http://app:9090/VulnerableApp";
             const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
             const get = (u) => fetch(u, { signal: AbortSignal.timeout(8000) });
             (async () => {
+              let up = false;
               for (let i = 0; i < 60; i++) {
-                try { if ((await get(B + "/allEndPointJson")).ok) { console.log("VulnerableApp ready after " + i + " attempt(s)"); process.exit(0); } } catch {}
+                try { if ((await get(B + "/allEndPointJson")).ok) { up = true; break; } } catch {}
                 await sleep(3000);
               }
-              console.error("VulnerableApp never served a healthy /allEndPointJson"); process.exit(2);
+              if (!up) { console.error("VulnerableApp never served a healthy /allEndPointJson"); process.exit(2); }
+              // Gate on the seed completing: a known car row must be queryable.
+              for (let i = 0; i < 40; i++) {
+                try {
+                  const r = await get(B + "/UnionBasedSQLInjectionVulnerability/LEVEL_1?id=1");
+                  if (r.ok && /Audi/.test(await r.text())) { console.log("VulnerableApp ready + seeded after " + i + " probe(s)"); process.exit(0); }
+                } catch {}
+                await sleep(3000);
+              }
+              console.error("VulnerableApp endpoints up but data never seeded (no Audi row)"); process.exit(3);
             })();
           '
 
