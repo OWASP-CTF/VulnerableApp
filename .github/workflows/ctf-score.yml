@@ -96,8 +96,17 @@ jobs:
       - name: Start the ollama sidecar on the internal network
         run: docker run -d --name ollama --network ctfnet docker.io/ollama/ollama:latest
 
+      # The active `public` Spring profile maps the H2 admin/app datasource credentials to env vars
+      # (DB_ADMIN_*/DB_APP_*). Unset, the admin datasource can't init, so the schema/data SQL never
+      # runs and the cars/users tables stay empty — making the data-dependent SQLi (Blind/Union/Auth)
+      # silently unexploitable. The app user's password is hardcoded to 'hacker' in the schema
+      # (`CREATE USER application PASSWORD 'hacker'`), so these values must match.
       - name: Start the VulnerableApp sandboxed (jib-built PR image)
-        run: docker run -d --name app --network ctfnet ctf-app:pr
+        run: |
+          docker run -d --name app --network ctfnet \
+            -e DB_ADMIN_USERNAME=admin -e DB_ADMIN_PASSWORD=hacker \
+            -e DB_APP_USERNAME=application -e DB_APP_PASSWORD=hacker \
+            ctf-app:pr
 
       # Wait for VulnerableApp to be healthy AND for its data to be SEEDED. VulnerableApp's
       # DatabaseSeeder runs on ApplicationReadyEvent — i.e. AFTER the web server starts serving —
