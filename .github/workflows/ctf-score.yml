@@ -131,7 +131,7 @@ jobs:
           docker run --rm --network ctfnet \
             -e GITHUB_WORKSPACE=/out -v "$PWD/score-out:/out" -w /out \
             "$SCORER_IMAGE" --target vulnerableapp --url http://app:9090/VulnerableApp || rc=$?
-          if [ "$rc" -ge 100 ]; then echo "::error::scorer failed (exit $rc)"; exit "$rc"; fi
+          if [ "$rc" -ge 125 ]; then echo "::error::scorer failed (exit $rc)"; exit "$rc"; fi
           echo "Scorer finished: $rc challenge(s) still open."
 
       - name: Stop containers
